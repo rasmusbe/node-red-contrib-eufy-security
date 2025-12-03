@@ -1,0 +1,230 @@
+<script type="text/javascript">
+  RED.nodes.registerType("eufy-config", {
+    category: "config",
+    defaults: {
+      name: { value: "" },
+      country: { value: "US" },
+    },
+    credentials: {
+      username: { type: "text" },
+      password: { type: "password" },
+    },
+    label: function () {
+      return this.name || this.credentials?.username || "Eufy Security";
+    },
+    oneditprepare: function () {
+      const node = this;
+
+      // Country dropdown
+      const countries = [
+        { value: "US", label: "United States" },
+        { value: "GB", label: "United Kingdom" },
+        { value: "DE", label: "Germany" },
+        { value: "FR", label: "France" },
+        { value: "IT", label: "Italy" },
+        { value: "ES", label: "Spain" },
+        { value: "NL", label: "Netherlands" },
+        { value: "SE", label: "Sweden" },
+        { value: "NO", label: "Norway" },
+        { value: "DK", label: "Denmark" },
+        { value: "FI", label: "Finland" },
+        { value: "AU", label: "Australia" },
+        { value: "CA", label: "Canada" },
+      ];
+
+      const countrySelect = $("#node-config-input-country");
+      countries.forEach((c) => {
+        countrySelect.append(
+          $("<option>").val(c.value).text(c.label)
+        );
+      });
+      countrySelect.val(node.country || "US");
+
+      // Status check
+      function checkStatus() {
+        if (!node.id) return;
+
+        $.getJSON(`eufy-security/status/${node.id}`, (status) => {
+          let statusText = "";
+          let statusClass = "";
+
+          if (status.connected) {
+            statusText = "Connected";
+            statusClass = "connected";
+            if (status.pushConnected) {
+              statusText += " (Push active)";
+            }
+          } else if (status.error) {
+            statusText = `Error: ${status.error}`;
+            statusClass = "error";
+          } else {
+            statusText = "Disconnected";
+            statusClass = "disconnected";
+          }
+
+          $("#eufy-status-text").text(statusText).removeClass("connected disconnected error").addClass(statusClass);
+
+          // Show connected stations
+          if (status.stations && status.stations.length > 0) {
+            const stationList = status.stations
+              .map((s) => `${s.name} (P2P: ${s.p2pConnected ? "Yes" : "No"})`)
+              .join(", ");
+            $("#eufy-stations").text(`Stations: ${stationList}`);
+          }
+        }).fail(() => {
+          $("#eufy-status-text").text("Not deployed").removeClass("connected error").addClass("disconnected");
+        });
+      }
+
+      // Check status periodically
+      checkStatus();
+      const statusInterval = setInterval(checkStatus, 5000);
+
+      // Clean up on dialog close
+      $("#dialog-form").on("remove", () => {
+        clearInterval(statusInterval);
+      });
+
+      // Reconnect button
+      $("#eufy-reconnect-btn").on("click", () => {
+        $.post(`eufy-security/reconnect/${node.id}`, () => {
+          RED.notify("Reconnecting...", "info");
+          setTimeout(checkStatus, 2000);
+        }).fail((err) => {
+          RED.notify(`Reconnect failed: ${err.responseJSON?.error || "Unknown error"}`, "error");
+        });
+      });
+
+      // 2FA submit
+      $("#eufy-2fa-submit").on("click", () => {
+        const code = $("#eufy-2fa-code").val();
+        if (!code) return;
+
+        $.ajax({
+          url: `eufy-security/verify-2fa/${node.id}`,
+          method: "POST",
+          contentType: "application/json",
+          data: JSON.stringify({ code }),
+          success: () => {
+            RED.notify("2FA verified successfully", "success");
+            $("#eufy-2fa-section").hide();
+            checkStatus();
+          },
+          error: (err) => {
+            RED.notify(`2FA failed: ${err.responseJSON?.error || "Unknown error"}`, "error");
+          },
+        });
+      });
+
+      // Captcha submit
+      $("#eufy-captcha-submit").on("click", () => {
+        const captchaCode = $("#eufy-captcha-code").val();
+        const captchaId = $("#eufy-captcha-id").val();
+        if (!captchaCode) return;
+
+        $.ajax({
+          url: `eufy-security/verify-captcha/${node.id}`,
+          method: "POST",
+          contentType: "application/json",
+          data: JSON.stringify({ captchaId, captchaCode }),
+          success: () => {
+            RED.notify("Captcha verified successfully", "success");
+            $("#eufy-captcha-section").hide();
+            checkStatus();
+          },
+          error: (err) => {
+            RED.notify(`Captcha failed: ${err.responseJSON?.error || "Unknown error"}`, "error");
+          },
+        });
+      });
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eufy-config">
+  <div class="form-row">
+    <label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-config-input-name" placeholder="Name" />
+  </div>
+
+  <div class="form-row">
+    <label for="node-config-input-username"><i class="fa fa-user"></i> Username</label>
+    <input type="text" id="node-config-input-username" placeholder="Email" />
+  </div>
+
+  <div class="form-row">
+    <label for="node-config-input-password"><i class="fa fa-lock"></i> Password</label>
+    <input type="password" id="node-config-input-password" placeholder="Password" />
+  </div>
+
+  <div class="form-row">
+    <label for="node-config-input-country"><i class="fa fa-globe"></i> Country</label>
+    <select id="node-config-input-country"></select>
+  </div>
+
+  <div class="form-row">
+    <label><i class="fa fa-info-circle"></i> Status</label>
+    <span id="eufy-status-text" class="disconnected">Unknown</span>
+    <button type="button" id="eufy-reconnect-btn" class="red-ui-button" style="margin-left: 10px;">
+      <i class="fa fa-refresh"></i> Reconnect
+    </button>
+  </div>
+
+  <div class="form-row">
+    <span id="eufy-stations" style="color: #888; font-size: 0.9em;"></span>
+  </div>
+
+  <!-- 2FA Section (hidden by default) -->
+  <div id="eufy-2fa-section" class="form-row" style="display: none; border: 1px solid #f0ad4e; padding: 10px; border-radius: 4px; background: #fcf8e3;">
+    <label><i class="fa fa-shield"></i> Two-Factor Authentication Required</label>
+    <div style="margin-top: 5px;">
+      <input type="text" id="eufy-2fa-code" placeholder="Enter 2FA code" style="width: 150px;" />
+      <button type="button" id="eufy-2fa-submit" class="red-ui-button">Verify</button>
+    </div>
+  </div>
+
+  <!-- Captcha Section (hidden by default) -->
+  <div id="eufy-captcha-section" class="form-row" style="display: none; border: 1px solid #5bc0de; padding: 10px; border-radius: 4px; background: #d9edf7;">
+    <label><i class="fa fa-picture-o"></i> Captcha Required</label>
+    <div style="margin-top: 5px;">
+      <img id="eufy-captcha-image" src="" style="max-width: 200px; display: block; margin-bottom: 5px;" />
+      <input type="hidden" id="eufy-captcha-id" />
+      <input type="text" id="eufy-captcha-code" placeholder="Enter captcha" style="width: 150px;" />
+      <button type="button" id="eufy-captcha-submit" class="red-ui-button">Verify</button>
+    </div>
+  </div>
+
+  <style>
+    #eufy-status-text.connected { color: #5cb85c; font-weight: bold; }
+    #eufy-status-text.disconnected { color: #999; }
+    #eufy-status-text.error { color: #d9534f; }
+  </style>
+</script>
+
+<script type="text/html" data-help-name="eufy-config">
+  <p>Configuration node for Eufy Security account credentials.</p>
+
+  <h3>Configuration</h3>
+  <dl class="message-properties">
+    <dt>Username <span class="property-type">string</span></dt>
+    <dd>Your Eufy Security account email address.</dd>
+
+    <dt>Password <span class="property-type">string</span></dt>
+    <dd>Your Eufy Security account password.</dd>
+
+    <dt>Country <span class="property-type">string</span></dt>
+    <dd>Your country code (e.g., US, GB, DE).</dd>
+  </dl>
+
+  <h3>Two-Factor Authentication</h3>
+  <p>If your account has 2FA enabled, you will be prompted to enter the verification code after deploying. The session will be persisted so you won't need to re-authenticate frequently.</p>
+
+  <h3>Connection Status</h3>
+  <p>The status indicator shows the current connection state:</p>
+  <ul>
+    <li><strong>Connected</strong> - Successfully connected to Eufy cloud</li>
+    <li><strong>Disconnected</strong> - Not connected</li>
+    <li><strong>Error</strong> - Connection failed (check credentials)</li>
+  </ul>
+</script>
+

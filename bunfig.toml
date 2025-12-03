@@ -1,0 +1,8 @@
+[build]
+target = "node"
+minify = false
+sourcemap = "external"
+
+[install]
+production = false
+

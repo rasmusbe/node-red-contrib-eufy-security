@@ -1,0 +1,172 @@
+<script type="text/javascript">
+  RED.nodes.registerType("eufy-device", {
+    category: "eufy security",
+    color: "#4B89DC",
+    defaults: {
+      name: { value: "" },
+      config: { value: "", type: "eufy-config", required: true },
+      device: { value: "" },
+      action: { value: "getProperties" },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: "font-awesome/fa-video-camera",
+    paletteLabel: "eufy device",
+    label: function () {
+      if (this.name) return this.name;
+      const action = this.action || "action";
+      return `eufy ${action}`;
+    },
+    oneditprepare: function () {
+      const node = this;
+
+      // Populate action dropdown
+      const actions = [
+        { value: "getProperties", label: "Get Properties" },
+        { value: "snooze", label: "Snooze (2 hours)" },
+        { value: "unsnooze", label: "Unsnooze" },
+        { value: "enable", label: "Enable Device" },
+        { value: "disable", label: "Disable Device" },
+      ];
+
+      const actionSelect = $("#node-input-action");
+      actions.forEach((a) => {
+        actionSelect.append($("<option>").val(a.value).text(a.label));
+      });
+      actionSelect.val(node.action || "getProperties");
+
+      // Device dropdown - populate from config
+      function loadDevices() {
+        const configId = $("#node-input-config").val();
+        if (!configId) {
+          $("#node-input-device").html('<option value="">-- Select config first --</option>');
+          return;
+        }
+
+        $("#node-input-device").html('<option value="">Loading...</option>');
+
+        $.getJSON(`eufy-security/devices/${configId}`, (devices) => {
+          const select = $("#node-input-device");
+          select.empty();
+          select.append($("<option>").val("").text("-- Select device (or use msg.payload.device) --"));
+
+          if (devices && devices.length > 0) {
+            devices.forEach((d) => {
+              select.append(
+                $("<option>")
+                  .val(d.serial)
+                  .text(`${d.name} (${d.model})`)
+              );
+            });
+          } else {
+            select.append($("<option>").val("").text("No devices found"));
+          }
+
+          // Restore previous selection
+          if (node.device) {
+            select.val(node.device);
+          }
+        }).fail(() => {
+          const select = $("#node-input-device");
+          select.empty();
+          select.append($("<option>").val("").text("-- Deploy config first --"));
+        });
+      }
+
+      // Load devices when config changes
+      $("#node-input-config").on("change", loadDevices);
+
+      // Initial load
+      loadDevices();
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eufy-device">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name" />
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-config"><i class="fa fa-cog"></i> Account</label>
+    <input type="text" id="node-input-config" />
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-device"><i class="fa fa-video-camera"></i> Device</label>
+    <select id="node-input-device" style="width: 70%;">
+      <option value="">-- Select device --</option>
+    </select>
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-action"><i class="fa fa-bolt"></i> Action</label>
+    <select id="node-input-action" style="width: 70%;"></select>
+  </div>
+
+  <div class="form-tips">
+    <p><i class="fa fa-info-circle"></i> Device and action can be overridden via <code>msg.payload</code>:</p>
+    <pre style="font-size: 0.9em;">{
+  "device": "T8410P42233714DB",
+  "action": "snooze",
+  "options": { "duration": 3600 }
+}</pre>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eufy-device">
+  <p>Send commands to Eufy Security devices.</p>
+
+  <h3>Inputs</h3>
+  <dl class="message-properties">
+    <dt class="optional">payload.device <span class="property-type">string</span></dt>
+    <dd>Device serial number (overrides node config)</dd>
+
+    <dt class="optional">payload.action <span class="property-type">string</span></dt>
+    <dd>Action to perform (overrides node config)</dd>
+
+    <dt class="optional">payload.options <span class="property-type">object</span></dt>
+    <dd>Action-specific options</dd>
+  </dl>
+
+  <h3>Outputs</h3>
+  <dl class="message-properties">
+    <dt>payload.success <span class="property-type">boolean</span></dt>
+    <dd>Whether the action succeeded</dd>
+
+    <dt>payload.action <span class="property-type">string</span></dt>
+    <dd>The action that was performed</dd>
+
+    <dt>payload.device <span class="property-type">string</span></dt>
+    <dd>The device serial number</dd>
+
+    <dt>payload.result <span class="property-type">object</span></dt>
+    <dd>Action result data (varies by action)</dd>
+
+    <dt class="optional">payload.error <span class="property-type">string</span></dt>
+    <dd>Error message if action failed</dd>
+  </dl>
+
+  <h3>Actions</h3>
+  <ul>
+    <li><code>snooze</code> - Snooze notifications (default 2 hours, use <code>options.duration</code> for custom)</li>
+    <li><code>unsnooze</code> - Cancel snooze</li>
+    <li><code>getProperties</code> - Get all device properties</li>
+    <li><code>enable</code> - Enable the device</li>
+    <li><code>disable</code> - Disable the device</li>
+  </ul>
+
+  <h3>Examples</h3>
+  <p>Snooze for 1 hour:</p>
+  <pre>msg.payload = {
+  "action": "snooze",
+  "options": { "duration": 3600 }
+};</pre>
+
+  <p>Get device properties:</p>
+  <pre>msg.payload = {
+  "action": "getProperties"
+};</pre>
+</script>
+

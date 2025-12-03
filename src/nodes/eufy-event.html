@@ -1,0 +1,201 @@
+<script type="text/javascript">
+  RED.nodes.registerType("eufy-event", {
+    category: "eufy security",
+    color: "#7FB77E",
+    defaults: {
+      name: { value: "" },
+      config: { value: "", type: "eufy-config", required: true },
+      device: { value: "" },
+      events: { value: [] },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: "font-awesome/fa-bell",
+    paletteLabel: "eufy event",
+    label: function () {
+      if (this.name) return this.name;
+      if (this.events && this.events.length > 0) {
+        return `eufy: ${this.events.join(", ")}`;
+      }
+      return "eufy events";
+    },
+    oneditprepare: function () {
+      const node = this;
+
+      // Event type checkboxes
+      const eventTypes = [
+        { id: "motion", label: "Motion Detected", icon: "fa-walking" },
+        { id: "personDetected", label: "Person Detected", icon: "fa-user" },
+        { id: "petDetected", label: "Pet Detected", icon: "fa-paw" },
+        { id: "cryingDetected", label: "Crying Detected", icon: "fa-baby" },
+        { id: "soundDetected", label: "Sound Detected", icon: "fa-volume-up" },
+        { id: "rings", label: "Doorbell Ring", icon: "fa-bell" },
+        { id: "propertyChanged", label: "Property Changed", icon: "fa-cog" },
+      ];
+
+      const container = $("#eufy-event-types");
+      eventTypes.forEach((e) => {
+        const checked = node.events && node.events.includes(e.id) ? "checked" : "";
+        container.append(`
+          <div class="form-row" style="margin-left: 20px;">
+            <label style="width: auto;">
+              <input type="checkbox" class="eufy-event-checkbox" value="${e.id}" ${checked} />
+              <i class="fa ${e.icon}" style="margin: 0 5px;"></i>
+              ${e.label}
+            </label>
+          </div>
+        `);
+      });
+
+      // Device dropdown - populate from config
+      function loadDevices() {
+        const configId = $("#node-input-config").val();
+        if (!configId) {
+          $("#node-input-device").html('<option value="">-- Select config first --</option>');
+          return;
+        }
+
+        $("#node-input-device").html('<option value="">Loading...</option>');
+
+        $.getJSON(`eufy-security/devices/${configId}`, (devices) => {
+          const select = $("#node-input-device");
+          select.empty();
+          select.append($("<option>").val("").text("-- All devices --"));
+
+          if (devices && devices.length > 0) {
+            devices.forEach((d) => {
+              select.append(
+                $("<option>")
+                  .val(d.serial)
+                  .text(`${d.name} (${d.model})`)
+              );
+            });
+          }
+
+          // Restore previous selection
+          if (node.device) {
+            select.val(node.device);
+          }
+        }).fail(() => {
+          const select = $("#node-input-device");
+          select.empty();
+          select.append($("<option>").val("").text("-- Deploy config first --"));
+        });
+      }
+
+      // Load devices when config changes
+      $("#node-input-config").on("change", loadDevices);
+
+      // Initial load
+      loadDevices();
+
+      // Select/deselect all
+      $("#eufy-select-all").on("click", () => {
+        $(".eufy-event-checkbox").prop("checked", true);
+      });
+
+      $("#eufy-select-none").on("click", () => {
+        $(".eufy-event-checkbox").prop("checked", false);
+      });
+    },
+    oneditsave: function () {
+      // Gather selected events
+      const events = [];
+      $(".eufy-event-checkbox:checked").each(function () {
+        events.push($(this).val());
+      });
+      this.events = events;
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eufy-event">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name" />
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-config"><i class="fa fa-cog"></i> Account</label>
+    <input type="text" id="node-input-config" />
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-device"><i class="fa fa-video-camera"></i> Device</label>
+    <select id="node-input-device" style="width: 70%;">
+      <option value="">-- All devices --</option>
+    </select>
+  </div>
+
+  <div class="form-row">
+    <label><i class="fa fa-filter"></i> Events</label>
+    <div style="display: inline-block;">
+      <button type="button" id="eufy-select-all" class="red-ui-button red-ui-button-small">All</button>
+      <button type="button" id="eufy-select-none" class="red-ui-button red-ui-button-small">None</button>
+    </div>
+  </div>
+
+  <div id="eufy-event-types" style="margin-top: 10px;">
+    <!-- Event checkboxes will be added here -->
+  </div>
+
+  <div class="form-tips" style="margin-top: 15px;">
+    <p><i class="fa fa-info-circle"></i> Filter can be changed at runtime via <code>msg.payload</code>:</p>
+    <pre style="font-size: 0.9em;">{
+  "device": "T8410P42233714DB",
+  "events": ["motion", "cryingDetected"]
+}</pre>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eufy-event">
+  <p>Listen for events from Eufy Security devices.</p>
+
+  <h3>Inputs</h3>
+  <p>Send a message to dynamically change the event filter:</p>
+  <dl class="message-properties">
+    <dt class="optional">payload.device <span class="property-type">string</span></dt>
+    <dd>Filter to specific device serial (empty = all devices)</dd>
+
+    <dt class="optional">payload.events <span class="property-type">array</span></dt>
+    <dd>Array of event types to listen for (empty = all events)</dd>
+  </dl>
+
+  <h3>Outputs</h3>
+  <dl class="message-properties">
+    <dt>payload.event <span class="property-type">string</span></dt>
+    <dd>Event type (motion, personDetected, etc.)</dd>
+
+    <dt>payload.device <span class="property-type">string</span></dt>
+    <dd>Device serial number</dd>
+
+    <dt>payload.deviceName <span class="property-type">string</span></dt>
+    <dd>Device name</dd>
+
+    <dt>payload.value <span class="property-type">any</span></dt>
+    <dd>Event value (varies by event type)</dd>
+
+    <dt>payload.timestamp <span class="property-type">date</span></dt>
+    <dd>When the event occurred</dd>
+
+    <dt>topic <span class="property-type">string</span></dt>
+    <dd>Topic in format: <code>eufy/{deviceSerial}/{eventType}</code></dd>
+  </dl>
+
+  <h3>Event Types</h3>
+  <ul>
+    <li><code>motion</code> - Motion detected</li>
+    <li><code>personDetected</code> - Person detected (includes person name if known)</li>
+    <li><code>petDetected</code> - Pet detected</li>
+    <li><code>cryingDetected</code> - Baby crying detected</li>
+    <li><code>soundDetected</code> - Sound detected</li>
+    <li><code>rings</code> - Doorbell ring</li>
+    <li><code>propertyChanged</code> - Device property changed (includes property name and value)</li>
+  </ul>
+
+  <h3>Details</h3>
+  <p>This node listens for events from Eufy Security devices and outputs a message when an event occurs.</p>
+  <p>You can filter events by device and/or event type. If no filter is set, all events from all devices will be output.</p>
+  <p>The filter can be set in the node configuration or changed at runtime by sending a message to the node's input.</p>
+</script>
+
