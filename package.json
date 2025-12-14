@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-eufy-security",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Node-RED nodes for Eufy Security devices",
   "keywords": [
     "node-red",
@@ -11,7 +11,7 @@
     "smart home",
     "iot"
   ],
-  "author": "Rasmus",
+  "author": "Rasmus Graham",
   "license": "MIT",
   "repository": {
     "type": "git",

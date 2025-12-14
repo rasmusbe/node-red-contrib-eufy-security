@@ -25,8 +25,8 @@
         { value: "getProperties", label: "Get Properties" },
         { value: "snooze", label: "Snooze (2 hours)" },
         { value: "unsnooze", label: "Unsnooze" },
-        { value: "enable", label: "Enable Device" },
-        { value: "disable", label: "Disable Device" },
+        { value: "enableNotificationCrying", label: "Enable Crying Notification" },
+        { value: "disableNotificationCrying", label: "Disable Crying Notification" },
       ];
 
       const actionSelect = $("#node-input-action");
@@ -153,8 +153,8 @@
     <li><code>snooze</code> - Snooze notifications (default 2 hours, use <code>options.duration</code> for custom)</li>
     <li><code>unsnooze</code> - Cancel snooze</li>
     <li><code>getProperties</code> - Get all device properties</li>
-    <li><code>enable</code> - Enable the device</li>
-    <li><code>disable</code> - Disable the device</li>
+    <li><code>enableNotificationCrying</code> - Enable crying detection notifications</li>
+    <li><code>disableNotificationCrying</code> - Disable crying detection notifications</li>
   </ul>
 
   <h3>Examples</h3>
@@ -167,6 +167,16 @@
   <p>Get device properties:</p>
   <pre>msg.payload = {
   "action": "getProperties"
+};</pre>
+
+  <p>Enable crying notification:</p>
+  <pre>msg.payload = {
+  "action": "enableNotificationCrying"
+};</pre>
+
+  <p>Disable crying notification:</p>
+  <pre>msg.payload = {
+  "action": "disableNotificationCrying"
 };</pre>
 </script>
 

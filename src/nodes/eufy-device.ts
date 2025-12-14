@@ -1,11 +1,12 @@
 /**
  * Eufy Device Action Node
  *
- * Sends commands to Eufy devices (snooze, enable, disable, etc.)
+ * Sends commands to Eufy devices (snooze, get properties, etc.)
  * Device and action can be configured in node or overridden via msg.payload
  */
 
 import type { Node, NodeAPI, NodeDef, NodeMessage } from "node-red";
+import { PropertyName } from "../lib/eufy-client";
 import type { EufyConfigNode } from "./eufy-config";
 
 interface EufyDeviceNodeDef extends NodeDef {
@@ -40,11 +41,18 @@ interface OutputMessage extends NodeMessage {
   };
 }
 
-type ActionType = "snooze" | "unsnooze" | "enable" | "disable" | "getProperties";
+type ActionType =
+  | "snooze"
+  | "unsnooze"
+  | "getProperties"
+  | "enableNotificationCrying"
+  | "disableNotificationCrying";
 
-export default function(Red: NodeAPI): void {
-
-  function EufyDeviceNodeConstructor(this: EufyDeviceNode, config: EufyDeviceNodeDef): void {
+export default function (Red: NodeAPI): void {
+  function EufyDeviceNodeConstructor(
+    this: EufyDeviceNode,
+    config: EufyDeviceNodeDef
+  ): void {
     Red.nodes.createNode(this, config);
 
     this.config = config.config;
@@ -78,7 +86,7 @@ export default function(Red: NodeAPI): void {
     this.on("input", async (msg: NodeMessage, send, done) => {
       try {
         const client = this.configNode?.getClient();
-        if (!(client?.isConnected())) {
+        if (!client?.isConnected()) {
           throw new Error("Not connected to Eufy Security");
         }
 
@@ -121,10 +129,25 @@ export default function(Red: NodeAPI): void {
             break;
           }
 
-          case "enable":
-          case "disable":
-            // These would need additional implementation in eufy-client.ts
-            throw new Error(`Action "${action}" not yet implemented`);
+          case "enableNotificationCrying": {
+            success = await client.setDeviceProperty(
+              deviceSerial,
+              PropertyName.DeviceNotificationCrying,
+              true
+            );
+            result = { notificationCrying: true };
+            break;
+          }
+
+          case "disableNotificationCrying": {
+            success = await client.setDeviceProperty(
+              deviceSerial,
+              PropertyName.DeviceNotificationCrying,
+              false
+            );
+            result = { notificationCrying: false };
+            break;
+          }
 
           default:
             throw new Error(`Unknown action: ${action}`);
@@ -141,7 +164,11 @@ export default function(Red: NodeAPI): void {
         };
 
         send(output);
-        this.status({ fill: "green", shape: "dot", text: success ? "success" : "failed" });
+        this.status({
+          fill: "green",
+          shape: "dot",
+          text: success ? "success" : "failed",
+        });
 
         // Reset status after a delay
         setTimeout(updateStatus, 3000);
@@ -179,5 +206,4 @@ export default function(Red: NodeAPI): void {
   }
 
   Red.nodes.registerType("eufy-device", EufyDeviceNodeConstructor);
-};
-
+}

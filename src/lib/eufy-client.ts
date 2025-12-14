@@ -460,6 +460,45 @@ export class EufyClientManager extends EventEmitter {
   }
 
   /**
+   * Set a device property value
+   */
+  async setDeviceProperty(
+    deviceSerial: string,
+    propertyName: PropertyName,
+    value: PropertyValue
+  ): Promise<boolean> {
+    if (!this.client) {
+      throw new Error("Client not connected");
+    }
+
+    const device = await this.client.getDevice(deviceSerial);
+    const stationSerial = device.getStationSerial();
+
+    // Get property metadata to find the paramType (key)
+    const propertyMetadata = device.getPropertyMetadata(propertyName);
+    if (!propertyMetadata || typeof propertyMetadata.key !== "number") {
+      throw new Error(`Property ${propertyName} does not have a numeric key (paramType)`);
+    }
+
+    const paramType = propertyMetadata.key;
+
+    // Use HTTP API to set the parameter
+    try {
+      const api = (this.client as unknown as { api: { setParameters: (stationSN: string, deviceSN: string, params: Array<{ paramType: number; paramValue: unknown }>) => Promise<boolean> } }).api;
+      const success = await api.setParameters(stationSerial, deviceSerial, [
+        {
+          paramType,
+          paramValue: value,
+        },
+      ]);
+
+      return success;
+    } catch (error) {
+      throw new Error(`Failed to set property: ${(error as Error).message}`);
+    }
+  }
+
+  /**
    * Get current status
    */
   getStatus(): ConnectionStatus {
