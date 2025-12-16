@@ -220,8 +220,15 @@ export default function (Red: NodeAPI): void {
             let propertyValue = options.value;
 
             // If value not in options, try to parse from node config
-            if (propertyValue === undefined && this.propertyValue) {
-              const valueStr = this.propertyValue.trim();
+            // Check if value was explicitly provided in options (even if undefined/null)
+            const valueProvidedInOptions = "value" in options;
+            if (
+              !valueProvidedInOptions &&
+              this.propertyValue !== undefined &&
+              this.propertyValue !== null &&
+              this.propertyValue !== ""
+            ) {
+              const valueStr = String(this.propertyValue).trim();
               // Try to parse as boolean
               if (valueStr === "true") {
                 propertyValue = true;
@@ -254,9 +261,10 @@ export default function (Red: NodeAPI): void {
                 throw new Error("Custom property name required");
               }
             }
+            // Check if value is provided (allow 0, false, and "" as valid values)
             if (propertyValue === undefined || propertyValue === null) {
               throw new Error(
-                "Property value required in options.value or node config"
+                "Property value required in options.value or node config propertyValue field"
               );
             }
             if (targetType === "station") {
