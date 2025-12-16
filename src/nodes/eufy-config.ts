@@ -11,6 +11,7 @@ import {
   DeviceInfo,
   EufyClientConfig,
   EufyClientManager,
+  StationInfo,
 } from "../lib/eufy-client";
 
 interface EufyConfigNodeDef extends NodeDef {
@@ -29,6 +30,7 @@ export interface EufyConfigNode extends Node<EufyConfigCredentials> {
   client: EufyClientManager | null;
   getClient(): EufyClientManager;
   getDevices(): Promise<DeviceInfo[]>;
+  getStations(): Promise<StationInfo[]>;
   getStatus(): ConnectionStatus;
 }
 
@@ -98,6 +100,13 @@ export default function (Red: NodeAPI): void {
       return this.client.getDevices();
     };
 
+    this.getStations = async (): Promise<StationInfo[]> => {
+      if (!this.client?.isConnected()) {
+        return [];
+      }
+      return this.client.getStations();
+    };
+
     this.getStatus = (): ConnectionStatus => {
       if (!this.client) {
         return {
@@ -143,6 +152,24 @@ export default function (Red: NodeAPI): void {
 
       const devices = await configNode.getDevices();
       res.json(devices);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Get stations for dropdown
+  Red.httpAdmin.get("/eufy-security/stations/:configId", async (req, res) => {
+    try {
+      const configNode = Red.nodes.getNode(
+        req.params.configId
+      ) as EufyConfigNode;
+      if (!configNode) {
+        res.status(404).json({ error: "Config node not found" });
+        return;
+      }
+
+      const stations = await configNode.getStations();
+      res.json(stations);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -227,4 +254,67 @@ export default function (Red: NodeAPI): void {
       res.status(500).json({ error: (err as Error).message });
     }
   });
+
+  // Get property names for dropdown
+  Red.httpAdmin.get("/eufy-security/properties", (_req, res) => {
+    try {
+      const { PropertyName } = require("eufy-security-client");
+      const deviceProperties = Object.keys(PropertyName)
+        .filter((k) => k.startsWith("Device"))
+        .sort();
+      const stationProperties = Object.keys(PropertyName)
+        .filter((k) => k.startsWith("Station"))
+        .sort();
+      res.json({
+        device: deviceProperties,
+        station: stationProperties,
+        all: [...deviceProperties, ...stationProperties].sort(),
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Get supported properties for a specific device or station
+  Red.httpAdmin.get(
+    "/eufy-security/properties/:configId/:targetSerial",
+    async (req, res) => {
+      try {
+        const configNode = Red.nodes.getNode(
+          req.params.configId
+        ) as EufyConfigNode;
+        if (!configNode?.client) {
+          res.status(404).json({ error: "Config node not found" });
+          return;
+        }
+
+        const targetSerial = req.params.targetSerial;
+        if (!targetSerial) {
+          res.status(400).json({ error: "Device/Station serial required" });
+          return;
+        }
+
+        // Try device first, then station
+        try {
+          const properties =
+            await configNode.client.getDeviceSupportedProperties(targetSerial);
+          res.json({ type: "device", properties });
+        } catch {
+          try {
+            const properties =
+              await configNode.client.getStationSupportedProperties(
+                targetSerial
+              );
+            res.json({ type: "station", properties });
+          } catch {
+            res.status(404).json({
+              error: `Device or station ${targetSerial} not found`,
+            });
+          }
+        }
+      } catch (err) {
+        res.status(500).json({ error: (err as Error).message });
+      }
+    }
+  );
 }

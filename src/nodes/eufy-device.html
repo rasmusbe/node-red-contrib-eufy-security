@@ -5,8 +5,15 @@
     defaults: {
       name: { value: "" },
       config: { value: "", type: "eufy-config", required: true },
+      targetType: { value: "device" },
       device: { value: "" },
+      station: { value: "" },
       action: { value: "getProperties" },
+      property: { value: "" },
+      customProperty: { value: "" },
+      propertyValue: { value: "" },
+      panTiltDirection: { value: "LEFT" },
+      panTiltSpeed: { value: "50" },
     },
     inputs: 1,
     outputs: 1,
@@ -22,11 +29,13 @@
 
       // Populate action dropdown
       const actions = [
-        { value: "getProperties", label: "Get Properties" },
+        { value: "getProperties", label: "Get All Properties" },
+        { value: "getProperty", label: "Get Property" },
+        { value: "setProperty", label: "Set Property" },
         { value: "snooze", label: "Snooze (2 hours)" },
         { value: "unsnooze", label: "Unsnooze" },
-        { value: "enableNotificationCrying", label: "Enable Crying Notification" },
-        { value: "disableNotificationCrying", label: "Disable Crying Notification" },
+        { value: "panTilt", label: "Pan/Tilt" },
+        { value: "setPanTiltSpeed", label: "Set Pan/Tilt Speed" },
       ];
 
       const actionSelect = $("#node-input-action");
@@ -34,6 +43,132 @@
         actionSelect.append($("<option>").val(a.value).text(a.label));
       });
       actionSelect.val(node.action || "getProperties");
+
+      // Property dropdown - populate from API, filtered by device/station if selected
+      function loadProperties() {
+        const configId = $("#node-input-config").val();
+        const targetType = $("#node-input-target-type").val();
+        const deviceSerial = $("#node-input-device").val();
+        const stationSerial = $("#node-input-station").val();
+        const targetSerial = targetType === "station" ? stationSerial : deviceSerial;
+        const select = $("#node-input-property");
+
+        // Show loading state
+        select.empty();
+        select.append($("<option>").val("").text("Loading properties..."));
+
+        // If target is selected, get target-specific properties
+        if (configId && targetSerial) {
+          $.getJSON(`eufy-security/properties/${configId}/${targetSerial}`, (response) => {
+            // Response is { type: "device"|"station", properties: [...] }
+            populatePropertyDropdown(response.properties || [], true, response.type);
+          }).fail(() => {
+            // Fallback to all properties if target-specific fetch fails
+            $.getJSON("eufy-security/properties", (allProperties) => {
+              const props = targetType === "station" ? allProperties.station : allProperties.device;
+              populatePropertyDropdown(props || [], false, targetType);
+            }).fail(() => {
+              select.empty();
+              select.append($("<option>").val("").text("-- Error loading properties --"));
+            });
+          });
+        } else {
+          // No target selected, show all properties for selected type
+          $.getJSON("eufy-security/properties", (allProperties) => {
+            const props = targetType === "station" ? allProperties.station : allProperties.device;
+            populatePropertyDropdown(props || [], false, targetType);
+          }).fail(() => {
+            select.empty();
+            select.append($("<option>").val("").text("-- Error loading properties --"));
+          });
+        }
+      }
+
+      function populatePropertyDropdown(properties, isFiltered, targetType) {
+        const select = $("#node-input-property");
+        select.empty();
+
+        const typeLabel = targetType === "station" ? "station" : "device";
+        if (isFiltered) {
+          select.append($("<option>").val("").text(`-- Select property (${typeLabel}-specific) --`));
+        } else {
+          select.append($("<option>").val("").text(`-- Select property (all ${typeLabel}) --`));
+        }
+
+        if (properties && properties.length > 0) {
+          properties.forEach((prop) => {
+            select.append($("<option>").val(prop).text(prop));
+          });
+        }
+
+        // Add Custom option at the bottom
+        select.append($("<option>").val("__CUSTOM__").text("Custom..."));
+
+        // Restore previous selection
+        if (node.property) {
+          if (node.property === "__CUSTOM__" || !properties.includes(node.property)) {
+            select.val("__CUSTOM__");
+            $("#node-input-custom-property").val(node.customProperty || node.property);
+            $("#node-input-custom-property-row").show();
+          } else {
+            select.val(node.property);
+            $("#node-input-custom-property-row").hide();
+          }
+        }
+
+        // Restore property value for setProperty action
+        if (node.propertyValue !== undefined) {
+          $("#node-input-property-value").val(node.propertyValue);
+        }
+      }
+
+      // Show/hide fields based on action and target type
+      function togglePropertyFields() {
+        const action = actionSelect.val();
+        const targetType = $("#node-input-target-type").val();
+        const needsProperty = action === "getProperty" || action === "setProperty";
+        const needsValue = action === "setProperty";
+        const needsDirection = action === "panTilt";
+        const needsSpeed = action === "setPanTiltSpeed";
+        const showDevice = targetType === "device";
+        const showStation = targetType === "station";
+
+        $("#node-input-property-row").toggle(needsProperty);
+        $("#node-input-property-value-row").toggle(needsValue);
+        $("#node-input-pan-tilt-direction-row").toggle(needsDirection);
+        $("#node-input-pan-tilt-speed-row").toggle(needsSpeed);
+        $("#node-input-device-row").toggle(showDevice);
+        $("#node-input-station-row").toggle(showStation);
+
+        if (needsProperty) {
+          loadProperties();
+        }
+      }
+
+      // Handle target type change
+      $("#node-input-target-type").on("change", () => {
+        togglePropertyFields();
+        if ($("#node-input-action").val() === "getProperty" || $("#node-input-action").val() === "setProperty") {
+          loadProperties();
+        }
+      });
+
+      // Handle property dropdown change
+      $("#node-input-property").on("change", () => {
+        if ($("#node-input-property").val() === "__CUSTOM__") {
+          $("#node-input-custom-property-row").show();
+          $("#node-input-custom-property").focus();
+        } else {
+          $("#node-input-custom-property-row").hide();
+          $("#node-input-custom-property").val("");
+        }
+      });
+
+      // Handle action change
+      actionSelect.on("change", togglePropertyFields);
+
+      // Initial toggle
+      togglePropertyFields();
 
       // Device dropdown - populate from config
       function loadDevices() {
@@ -73,11 +208,91 @@
         });
       }
 
-      // Load devices when config changes
-      $("#node-input-config").on("change", loadDevices);
+      // Station dropdown - populate from config
+      function loadStations() {
+        const configId = $("#node-input-config").val();
+        if (!configId) {
+          $("#node-input-station").html('<option value="">-- Select config first --</option>');
+          return;
+        }
+
+        $("#node-input-station").html('<option value="">Loading...</option>');
+
+        $.getJSON(`eufy-security/stations/${configId}`, (stations) => {
+          const select = $("#node-input-station");
+          select.empty();
+          select.append($("<option>").val("").text("-- Select station (or use msg.payload.station) --"));
+
+          if (stations && stations.length > 0) {
+            stations.forEach((s) => {
+              select.append(
+                $("<option>")
+                  .val(s.serial)
+                  .text(`${s.name} (${s.model})`)
+              );
+            });
+          } else {
+            select.append($("<option>").val("").text("No stations found"));
+          }
+
+          // Restore previous selection
+          if (node.station) {
+            select.val(node.station);
+          }
+        }).fail(() => {
+          const select = $("#node-input-station");
+          select.empty();
+          select.append($("<option>").val("").text("-- Deploy config first --"));
+        });
+      }
+
+      // Load devices/stations when config changes
+      $("#node-input-config").on("change", () => {
+        loadDevices();
+        loadStations();
+        // Reload properties when config changes (target might change)
+        if ($("#node-input-action").val() === "getProperty" || $("#node-input-action").val() === "setProperty") {
+          loadProperties();
+        }
+      });
+
+      // Reload properties when device/station changes
+      $("#node-input-device, #node-input-station").on("change", () => {
+        if ($("#node-input-action").val() === "getProperty" || $("#node-input-action").val() === "setProperty") {
+          loadProperties();
+        }
+      });
+
+      // Set initial target type
+      $("#node-input-target-type").val(node.targetType || "device");
+
+      // Restore pan/tilt values
+      if (node.panTiltDirection) {
+        $("#node-input-panTiltDirection").val(node.panTiltDirection);
+      }
+      if (node.panTiltSpeed) {
+        $("#node-input-panTiltSpeed").val(node.panTiltSpeed);
+      }
 
       // Initial load
+      togglePropertyFields();
       loadDevices();
+      loadStations();
+    },
+    oneditsave: () => {
+      // Save property value - use custom property if Custom is selected
+      const propertySelect = $("#node-input-property");
+
+      if (propertySelect.val() === "__CUSTOM__") {
+        $("#node-input-property").val("__CUSTOM__");
+        // The custom property value will be saved automatically by Node-RED
+      } else {
+        // Clear custom property if not using custom
+        $("#node-input-custom-property").val("");
+      }
+
+      // Pan/tilt direction and speed are saved automatically by Node-RED
+      // via the form fields node-input-pan-tilt-direction and node-input-pan-tilt-speed
     },
   });
 </script>
@@ -94,15 +309,64 @@
   </div>
 
   <div class="form-row">
+    <label for="node-input-target-type"><i class="fa fa-object-group"></i> Target Type</label>
+    <select id="node-input-target-type" style="width: 70%;">
+      <option value="device">Device</option>
+      <option value="station">Station</option>
+    </select>
+  </div>
+
+  <div class="form-row" id="node-input-device-row">
     <label for="node-input-device"><i class="fa fa-video-camera"></i> Device</label>
     <select id="node-input-device" style="width: 70%;">
       <option value="">-- Select device --</option>
     </select>
   </div>
 
+  <div class="form-row" id="node-input-station-row" style="display: none;">
+    <label for="node-input-station"><i class="fa fa-home"></i> Station</label>
+    <select id="node-input-station" style="width: 70%;">
+      <option value="">-- Select station --</option>
+    </select>
+  </div>
+
   <div class="form-row">
     <label for="node-input-action"><i class="fa fa-bolt"></i> Action</label>
     <select id="node-input-action" style="width: 70%;"></select>
+  </div>
+
+  <div class="form-row" id="node-input-property-row" style="display: none;">
+    <label for="node-input-property"><i class="fa fa-cog"></i> Property</label>
+    <select id="node-input-property" style="width: 70%;"></select>
+  </div>
+
+  <div class="form-row" id="node-input-custom-property-row" style="display: none;">
+    <label for="node-input-custom-property"><i class="fa fa-edit"></i> Custom Property Name</label>
+    <input type="text" id="node-input-custom-property" placeholder="e.g., DeviceNotificationCrying" style="width: 70%;" />
+  </div>
+
+  <div class="form-row" id="node-input-property-value-row" style="display: none;">
+    <label for="node-input-property-value"><i class="fa fa-pencil"></i> Property Value</label>
+    <input type="text" id="node-input-property-value" placeholder="e.g., true, false, 100" style="width: 70%;" />
+    <div style="font-size: 0.85em; color: #999; margin-top: 5px;">
+      Use <code>true</code>/<code>false</code> for booleans, numbers for numeric values, or strings for text
+    </div>
+  </div>
+
+  <div class="form-row" id="node-input-pan-tilt-direction-row" style="display: none;">
+    <label for="node-input-panTiltDirection"><i class="fa fa-arrows"></i> Pan/Tilt Direction</label>
+    <select id="node-input-panTiltDirection" style="width: 70%;">
+      <option value="LEFT">Left</option>
+      <option value="RIGHT">Right</option>
+      <option value="UP">Up</option>
+      <option value="DOWN">Down</option>
+      <option value="ROTATE360">Rotate 360°</option>
+    </select>
+  </div>
+
+  <div class="form-row" id="node-input-pan-tilt-speed-row" style="display: none;">
+    <label for="node-input-panTiltSpeed"><i class="fa fa-tachometer"></i> Pan/Tilt Speed</label>
+    <input type="number" id="node-input-panTiltSpeed" placeholder="Speed (0-100)" min="0" max="100" style="width: 70%;" />
   </div>
 
   <div class="form-tips">
@@ -116,12 +380,18 @@
 </script>
 
 <script type="text/html" data-help-name="eufy-device">
-  <p>Send commands to Eufy Security devices.</p>
+  <p>Send commands to Eufy Security devices and stations.</p>
 
   <h3>Inputs</h3>
   <dl class="message-properties">
+    <dt class="optional">payload.targetType <span class="property-type">string</span></dt>
+    <dd>Target type: "device" or "station" (overrides node config)</dd>
+
     <dt class="optional">payload.device <span class="property-type">string</span></dt>
-    <dd>Device serial number (overrides node config)</dd>
+    <dd>Device serial number (overrides node config, used when targetType is "device")</dd>
+
+    <dt class="optional">payload.station <span class="property-type">string</span></dt>
+    <dd>Station serial number (overrides node config, used when targetType is "station")</dd>
 
     <dt class="optional">payload.action <span class="property-type">string</span></dt>
     <dd>Action to perform (overrides node config)</dd>
@@ -138,8 +408,17 @@
     <dt>payload.action <span class="property-type">string</span></dt>
     <dd>The action that was performed</dd>
 
-    <dt>payload.device <span class="property-type">string</span></dt>
-    <dd>The device serial number</dd>
+    <dt class="optional">payload.device <span class="property-type">string</span></dt>
+    <dd>The device serial number (if targetType is "device")</dd>
+
+    <dt class="optional">payload.station <span class="property-type">string</span></dt>
+    <dd>The station serial number (if targetType is "station")</dd>
+
+    <dt class="optional">payload.target <span class="property-type">string</span></dt>
+    <dd>The target serial number (device or station)</dd>
+
+    <dt class="optional">payload.targetType <span class="property-type">string</span></dt>
+    <dd>The target type: "device" or "station"</dd>
 
     <dt>payload.result <span class="property-type">object</span></dt>
     <dd>Action result data (varies by action)</dd>
@@ -150,11 +429,13 @@
 
   <h3>Actions</h3>
   <ul>
-    <li><code>snooze</code> - Snooze notifications (default 2 hours, use <code>options.duration</code> for custom)</li>
-    <li><code>unsnooze</code> - Cancel snooze</li>
-    <li><code>getProperties</code> - Get all device properties</li>
-    <li><code>enableNotificationCrying</code> - Enable crying detection notifications</li>
-    <li><code>disableNotificationCrying</code> - Disable crying detection notifications</li>
+    <li><code>getProperties</code> - Get all device/station properties</li>
+    <li><code>getProperty</code> - Get a single property value (requires <code>options.property</code>)</li>
+    <li><code>setProperty</code> - Set a property value (requires <code>options.property</code> and <code>options.value</code>)</li>
+    <li><code>snooze</code> - Snooze device notifications (default 2 hours, use <code>options.duration</code> for custom) - Devices only</li>
+    <li><code>unsnooze</code> - Cancel snooze - Devices only</li>
+    <li><code>panTilt</code> - Pan/tilt a device camera (requires <code>options.direction</code>: LEFT, RIGHT, UP, DOWN, or ROTATE360) - Devices only</li>
+    <li><code>setPanTiltSpeed</code> - Set pan/tilt rotation speed (requires <code>options.speed</code>: 0-100) - Devices only</li>
   </ul>
 
   <h3>Examples</h3>
@@ -164,19 +445,53 @@
   "options": { "duration": 3600 }
 };</pre>
 
-  <p>Get device properties:</p>
+  <p>Get all device properties:</p>
   <pre>msg.payload = {
   "action": "getProperties"
 };</pre>
 
-  <p>Enable crying notification:</p>
+  <p>Get a single property:</p>
   <pre>msg.payload = {
-  "action": "enableNotificationCrying"
+  "action": "getProperty",
+  "options": {
+    "property": "DeviceNotificationCrying"
+  }
 };</pre>
 
-  <p>Disable crying notification:</p>
+  <p>Set a property value (e.g., enable crying notification):</p>
   <pre>msg.payload = {
-  "action": "disableNotificationCrying"
+  "action": "setProperty",
+  "options": {
+    "property": "DeviceNotificationCrying",
+    "value": true
+  }
+};</pre>
+
+  <p>Set a station property:</p>
+  <pre>msg.payload = {
+  "targetType": "station",
+  "station": "T8010N1234567890",
+  "action": "setProperty",
+  "options": {
+    "property": "StationGuardMode",
+    "value": 1
+  }
+};</pre>
+
+  <p>Pan/Tilt a device camera:</p>
+  <pre>msg.payload = {
+  "action": "panTilt",
+  "options": {
+    "direction": "LEFT"
+  }
+};</pre>
+
+  <p>Set pan/tilt rotation speed:</p>
+  <pre>msg.payload = {
+  "action": "setPanTiltSpeed",
+  "options": {
+    "speed": 75
+  }
 };</pre>
 </script>
 

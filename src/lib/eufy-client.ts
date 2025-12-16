@@ -13,6 +13,7 @@ import {
   EufySecurityConfig,
   LogLevel,
   P2PConnectionType,
+  PanTiltDirection,
   PropertyName,
   PropertyValue,
   SnoozeDetail,
@@ -41,6 +42,13 @@ export interface DeviceInfo {
   model: string;
   type: number;
   stationSerial: string;
+}
+
+export interface StationInfo {
+  serial: string;
+  name: string;
+  model: string;
+  type: number;
 }
 
 type EufyEventType =
@@ -405,6 +413,23 @@ export class EufyClientManager extends EventEmitter {
   }
 
   /**
+   * Get all stations
+   */
+  async getStations(): Promise<StationInfo[]> {
+    if (!this.client) {
+      throw new Error("Client not connected");
+    }
+
+    const stations = await this.client.getStations();
+    return stations.map((s) => ({
+      serial: s.getSerial(),
+      name: s.getName(),
+      model: s.getModel(),
+      type: s.getDeviceType(),
+    }));
+  }
+
+  /**
    * Get device properties
    */
   async getDeviceProperties(
@@ -416,6 +441,295 @@ export class EufyClientManager extends EventEmitter {
 
     const device = await this.client.getDevice(deviceSerial);
     return device.getProperties();
+  }
+
+  /**
+   * Get a single device property value
+   */
+  async getDeviceProperty(
+    deviceSerial: string,
+    propertyName: PropertyName | string
+  ): Promise<unknown> {
+    if (!this.client) {
+      throw new Error("Client not connected");
+    }
+
+    const device = await this.client.getDevice(deviceSerial);
+
+    // Convert string to PropertyName enum if needed
+    let propName: PropertyName;
+    if (typeof propertyName === "string") {
+      // Try to find the property name in the PropertyName enum
+      const propValue = PropertyName[propertyName as keyof typeof PropertyName];
+      if (!propValue) {
+        throw new Error(`Unknown property name: ${propertyName}`);
+      }
+      propName = propValue;
+    } else {
+      propName = propertyName;
+    }
+
+    return device.getPropertyValue(propName);
+  }
+
+  /**
+   * Get supported property names for a device (returns PropertyName enum keys)
+   */
+  async getDeviceSupportedProperties(deviceSerial: string): Promise<string[]> {
+    if (!this.client) {
+      throw new Error("Client not connected");
+    }
+
+    const device = await this.client.getDevice(deviceSerial);
+
+    // Get all Device* property enum keys
+    const allDeviceProperties = Object.keys(PropertyName).filter((k) =>
+      k.startsWith("Device")
+    );
+
+    // Filter to only properties this device supports using hasProperty
+    const supportedProperties = allDeviceProperties.filter((propKey) => {
+      const propName = PropertyName[propKey as keyof typeof PropertyName];
+      return device.hasProperty(propName, false);
+    });
+
+    return supportedProperties.sort();
+  }
+
+  /**
+   * Get station properties
+   */
+  async getStationProperties(
+    stationSerial: string
+  ): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      throw new Error("Client not connected");
+    }
+
+    const station = await this.client.getStation(stationSerial);
+    return station.getProperties();
+  }
+
+  /**
+   * Get a single station property value
+   */
+  async getStationProperty(
+    stationSerial: string,
+    propertyName: PropertyName | string
+  ): Promise<unknown> {
+    if (!this.client) {
+      throw new Error("Client not connected");
+    }
+
+    const station = await this.client.getStation(stationSerial);
+
+    // Convert string to PropertyName enum if needed
+    let propName: PropertyName;
+    if (typeof propertyName === "string") {
+      const propValue = PropertyName[propertyName as keyof typeof PropertyName];
+      if (!propValue) {
+        throw new Error(`Unknown property name: ${propertyName}`);
+      }
+      propName = propValue;
+    } else {
+      propName = propertyName;
+    }
+
+    return station.getPropertyValue(propName);
+  }
+
+  /**
+   * Set a station property value
+   */
+  async setStationProperty(
+    stationSerial: string,
+    propertyName: PropertyName | string,
+    value: PropertyValue
+  ): Promise<boolean> {
+    if (!this.client) {
+      throw new Error("Client not connected");
+    }
+
+    const station = await this.client.getStation(stationSerial);
+
+    // Convert string to PropertyName enum if needed
+    let propName: PropertyName;
+    if (typeof propertyName === "string") {
+      const propValue = PropertyName[propertyName as keyof typeof PropertyName];
+      if (!propValue) {
+        throw new Error(`Unknown property name: ${propertyName}`);
+      }
+      propName = propValue;
+    } else {
+      propName = propertyName;
+    }
+
+    // Get property metadata to find the paramType (key)
+    const propertyMetadata = station.getPropertyMetadata(propName);
+    if (!propertyMetadata || typeof propertyMetadata.key !== "number") {
+      throw new Error(
+        `Property ${propName} does not have a numeric key (paramType)`
+      );
+    }
+
+    const paramType = propertyMetadata.key;
+
+    // Use HTTP API to set the parameter
+    try {
+      const api = (
+        this.client as unknown as {
+          api: {
+            setParameters: (
+              stationSN: string,
+              deviceSN: string,
+              params: Array<{ paramType: number; paramValue: unknown }>
+            ) => Promise<boolean>;
+          };
+        }
+      ).api;
+      const success = await api.setParameters(stationSerial, stationSerial, [
+        {
+          paramType,
+          paramValue: value,
+        },
+      ]);
+
+      return success;
+    } catch (error) {
+      throw new Error(`Failed to set property: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Get supported property names for a station (returns PropertyName enum keys)
+   */
+  async getStationSupportedProperties(
+    stationSerial: string
+  ): Promise<string[]> {
+    if (!this.client) {
+      throw new Error("Client not connected");
+    }
+
+    const station = await this.client.getStation(stationSerial);
+
+    // Get all Station* property enum keys
+    const allStationProperties = Object.keys(PropertyName).filter((k) =>
+      k.startsWith("Station")
+    );
+
+    // Filter to only properties this station supports using hasProperty
+    const supportedProperties = allStationProperties.filter((propKey) => {
+      const propName = PropertyName[propKey as keyof typeof PropertyName];
+      return station.hasProperty(propName, false);
+    });
+
+    return supportedProperties.sort();
+  }
+
+  /**
+   * Pan and tilt a device
+   */
+  async panAndTilt(
+    deviceSerial: string,
+    direction: PanTiltDirection | string,
+    command?: number
+  ): Promise<boolean> {
+    if (!this.client) {
+      throw new Error("Client not connected");
+    }
+
+    const device = await this.client.getDevice(deviceSerial);
+    const station = await this.client.getStation(device.getStationSerial());
+
+    // Wait for P2P connection
+    await this.waitForStation(device.getStationSerial());
+
+    // Convert string direction to enum if needed
+    let panTiltDir: PanTiltDirection;
+    if (typeof direction === "string") {
+      const upperDir = direction.toUpperCase();
+      switch (upperDir) {
+        case "LEFT":
+          panTiltDir = PanTiltDirection.LEFT;
+          break;
+        case "RIGHT":
+          panTiltDir = PanTiltDirection.RIGHT;
+          break;
+        case "UP":
+          panTiltDir = PanTiltDirection.UP;
+          break;
+        case "DOWN":
+          panTiltDir = PanTiltDirection.DOWN;
+          break;
+        case "ROTATE360":
+          panTiltDir = PanTiltDirection.ROTATE360;
+          break;
+        default:
+          throw new Error(`Unknown pan/tilt direction: ${direction}`);
+      }
+    } else {
+      panTiltDir = direction;
+    }
+
+    // Set up result listener
+    const resultPromise = new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.client?.off("station command result", onResult);
+        resolve(false);
+      }, 10000);
+
+      const onResult = (_station: Station, result: CommandResult) => {
+        clearTimeout(timeout);
+        this.client?.off("station command result", onResult);
+        resolve(result.return_code === 0);
+      };
+
+      this.client?.on("station command result", onResult);
+    });
+
+    // Send pan/tilt command
+    station.panAndTilt(device, panTiltDir, command);
+
+    return resultPromise;
+  }
+
+  /**
+   * Set pan and tilt rotation speed
+   */
+  async setPanAndTiltRotationSpeed(
+    deviceSerial: string,
+    speed: number
+  ): Promise<boolean> {
+    if (!this.client) {
+      throw new Error("Client not connected");
+    }
+
+    const device = await this.client.getDevice(deviceSerial);
+    const station = await this.client.getStation(device.getStationSerial());
+
+    // Wait for P2P connection
+    await this.waitForStation(device.getStationSerial());
+
+    // Set up result listener
+    const resultPromise = new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.client?.off("station command result", onResult);
+        resolve(false);
+      }, 10000);
+
+      const onResult = (_station: Station, result: CommandResult) => {
+        clearTimeout(timeout);
+        this.client?.off("station command result", onResult);
+        resolve(result.return_code === 0);
+      };
+
+      this.client?.on("station command result", onResult);
+    });
+
+    // Send rotation speed command
+    station.setPanAndTiltRotationSpeed(device, speed);
+
+    return resultPromise;
   }
 
   /**
@@ -464,7 +778,7 @@ export class EufyClientManager extends EventEmitter {
    */
   async setDeviceProperty(
     deviceSerial: string,
-    propertyName: PropertyName,
+    propertyName: PropertyName | string,
     value: PropertyValue
   ): Promise<boolean> {
     if (!this.client) {
@@ -474,17 +788,42 @@ export class EufyClientManager extends EventEmitter {
     const device = await this.client.getDevice(deviceSerial);
     const stationSerial = device.getStationSerial();
 
+    // Convert string to PropertyName enum if needed
+    let propName: PropertyName;
+    if (typeof propertyName === "string") {
+      // Try to find the property name in the PropertyName enum
+      const propValue = PropertyName[propertyName as keyof typeof PropertyName];
+      if (!propValue) {
+        throw new Error(`Unknown property name: ${propertyName}`);
+      }
+      propName = propValue;
+    } else {
+      propName = propertyName;
+    }
+
     // Get property metadata to find the paramType (key)
-    const propertyMetadata = device.getPropertyMetadata(propertyName);
+    const propertyMetadata = device.getPropertyMetadata(propName);
     if (!propertyMetadata || typeof propertyMetadata.key !== "number") {
-      throw new Error(`Property ${propertyName} does not have a numeric key (paramType)`);
+      throw new Error(
+        `Property ${propName} does not have a numeric key (paramType)`
+      );
     }
 
     const paramType = propertyMetadata.key;
 
     // Use HTTP API to set the parameter
     try {
-      const api = (this.client as unknown as { api: { setParameters: (stationSN: string, deviceSN: string, params: Array<{ paramType: number; paramValue: unknown }>) => Promise<boolean> } }).api;
+      const api = (
+        this.client as unknown as {
+          api: {
+            setParameters: (
+              stationSN: string,
+              deviceSN: string,
+              params: Array<{ paramType: number; paramValue: unknown }>
+            ) => Promise<boolean>;
+          };
+        }
+      ).api;
       const success = await api.setParameters(stationSerial, deviceSerial, [
         {
           paramType,
