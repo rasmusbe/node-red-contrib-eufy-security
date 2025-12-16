@@ -47,7 +47,7 @@
       // Property dropdown - populate from API, filtered by device/station if selected
       function loadProperties() {
         const configId = $("#node-input-config").val();
-        const targetType = $("#node-input-target-type").val();
+        const targetType = $("#node-input-targetType").val();
         const deviceSerial = $("#node-input-device").val();
         const stationSerial = $("#node-input-station").val();
         const targetSerial = targetType === "station" ? stationSerial : deviceSerial;
@@ -108,7 +108,7 @@
         if (node.property) {
           if (node.property === "__CUSTOM__" || !properties.includes(node.property)) {
             select.val("__CUSTOM__");
-            $("#node-input-custom-property").val(node.customProperty || node.property);
+            $("#node-input-customProperty").val(node.customProperty || node.property);
             $("#node-input-custom-property-row").show();
           } else {
             select.val(node.property);
@@ -118,14 +118,14 @@
 
         // Restore property value for setProperty action
         if (node.propertyValue !== undefined) {
-          $("#node-input-property-value").val(node.propertyValue);
+          $("#node-input-propertyValue").val(node.propertyValue);
         }
       }
 
       // Show/hide fields based on action and target type
       function togglePropertyFields() {
         const action = actionSelect.val();
-        const targetType = $("#node-input-target-type").val();
+        const targetType = $("#node-input-targetType").val();
         const needsProperty = action === "getProperty" || action === "setProperty";
         const needsValue = action === "setProperty";
         const needsDirection = action === "panTilt";
@@ -146,7 +146,7 @@
       }
 
       // Handle target type change
-      $("#node-input-target-type").on("change", () => {
+      $("#node-input-targetType").on("change", () => {
         togglePropertyFields();
         if ($("#node-input-action").val() === "getProperty" || $("#node-input-action").val() === "setProperty") {
           loadProperties();
@@ -157,10 +157,10 @@
       $("#node-input-property").on("change", () => {
         if ($("#node-input-property").val() === "__CUSTOM__") {
           $("#node-input-custom-property-row").show();
-          $("#node-input-custom-property").focus();
+          $("#node-input-customProperty").focus();
         } else {
           $("#node-input-custom-property-row").hide();
-          $("#node-input-custom-property").val("");
+          $("#node-input-customProperty").val("");
         }
       });
 
@@ -264,7 +264,7 @@
       });
 
       // Set initial target type
-      $("#node-input-target-type").val(node.targetType || "device");
+      $("#node-input-targetType").val(node.targetType || "device");
 
       // Restore pan/tilt values
       if (node.panTiltDirection) {
@@ -288,7 +288,7 @@
         // The custom property value will be saved automatically by Node-RED
       } else {
         // Clear custom property if not using custom
-        $("#node-input-custom-property").val("");
+        $("#node-input-customProperty").val("");
       }
 
       // Pan/tilt direction and speed are saved automatically by Node-RED
@@ -309,8 +309,8 @@
   </div>
 
   <div class="form-row">
-    <label for="node-input-target-type"><i class="fa fa-object-group"></i> Target Type</label>
-    <select id="node-input-target-type" style="width: 70%;">
+    <label for="node-input-targetType"><i class="fa fa-object-group"></i> Target Type</label>
+    <select id="node-input-targetType" style="width: 70%;">
       <option value="device">Device</option>
       <option value="station">Station</option>
     </select>
@@ -341,13 +341,13 @@
   </div>
 
   <div class="form-row" id="node-input-custom-property-row" style="display: none;">
-    <label for="node-input-custom-property"><i class="fa fa-edit"></i> Custom Property Name</label>
-    <input type="text" id="node-input-custom-property" placeholder="e.g., DeviceNotificationCrying" style="width: 70%;" />
+    <label for="node-input-customProperty"><i class="fa fa-edit"></i> Custom Property Name</label>
+    <input type="text" id="node-input-customProperty" placeholder="e.g., DeviceNotificationCrying" style="width: 70%;" />
   </div>
 
   <div class="form-row" id="node-input-property-value-row" style="display: none;">
-    <label for="node-input-property-value"><i class="fa fa-pencil"></i> Property Value</label>
-    <input type="text" id="node-input-property-value" placeholder="e.g., true, false, 100" style="width: 70%;" />
+    <label for="node-input-propertyValue"><i class="fa fa-pencil"></i> Property Value</label>
+    <input type="text" id="node-input-propertyValue" placeholder="e.g., true, false, 100" style="width: 70%;" />
     <div style="font-size: 0.85em; color: #999; margin-top: 5px;">
       Use <code>true</code>/<code>false</code> for booleans, numbers for numeric values, or strings for text
     </div>
